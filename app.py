@@ -3,7 +3,7 @@ import requests
 
 st.set_page_config(page_title="Mi IA - Stack Pro", page_icon="⚡")
 
-st.title("🚀 Mi Propia Inteligencia Artificial")
+st.title("🚀 EVANS.DA")
 st.caption("Stack: Python + FastAPI + Ollama (Llama3)")
 
 # Inicializar el historial de chat (como en ChatGPT)
