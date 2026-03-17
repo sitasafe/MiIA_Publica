@@ -1,43 +1,38 @@
 import streamlit as st
-import requests
+from groq import Groq
 
-st.set_page_config(page_title="Mi IA - Stack Pro", page_icon="⚡")
-
+# Configuración de página
+st.set_page_config(page_title="EVANS.DA 🚀", page_icon="⚡")
 st.title("🚀 EVANS.DA")
-st.caption("Stack: Python + FastAPI + Ollama (Llama3)")
+st.caption("Stack: Python + Groq Cloud + Streamlit")
 
-# Inicializar el historial de chat (como en ChatGPT)
+# 1. Conexión segura con la llave que pegaste en Streamlit
+client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+
+# 2. Historial de chat (para que no se borren los mensajes al preguntar)
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Dibujar mensajes del historial
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Input de usuario
-
-if prompt := st.chat_input("Escribe tu pregunta aquí..."):
-    # Guardar y mostrar mensaje del usuario
+# 3. Entrada de usuario
+if prompt := st.chat_input("Escribe tu duda sobre las Unidades 1-4..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Petición al Servidor (Backend)
+    # 4. Respuesta de la IA
     with st.chat_message("assistant"):
-        with st.spinner("IA procesando..."):
+        with st.spinner("Pensando..."):
             try:
-                # Aquí conectamos con tu main.py de FastAPI
-                response = requests.post(
-                    "http://localhost:8000/preguntar",
-                    json={"text": prompt}
+                chat_completion = client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model="llama3-8b-8192",
                 )
-                
-                if response.status_code == 200:
-                    answer = response.json()["respuesta"]
-                    st.markdown(answer)
-                    st.session_state.messages.append({"role": "assistant", "content": answer})
-                else:
-                    st.error("Error en la respuesta del servidor.")
+                respuesta = chat_completion.choices[0].message.content
+                st.markdown(respuesta)
+                st.session_state.messages.append({"role": "assistant", "content": respuesta})
             except Exception as e:
-                st.error(f"Error: ¿Está corriendo el main.py? ({e})")
+                st.error(f"Hubo un error con la API de Groq: {e}")
