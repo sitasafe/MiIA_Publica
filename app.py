@@ -45,39 +45,56 @@ if "user_email" not in st.session_state:
             st.error("Por favor ingresa un correo válido.")
     st.stop()
 
-# --- INICIALIZACIÓN DE SESIÓN DE CHATS ---
+# --- INICIALIZACIÓN DE ESTADOS ---
 if "chats" not in st.session_state:
     st.session_state.chats = {"Chat Inicial": []}
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "Chat Inicial"
+if "gemas" not in st.session_state:
+    st.session_state.gemas = {"Estándar": "Eres EVANS.DA, un asistente útil y profesional."}
+if "selected_gema" not in st.session_state:
+    st.session_state.selected_gema = "Estándar"
 
-# --- SIDEBAR (PANEL LATERAL DE HISTORIAL) ---
+# --- SIDEBAR (PANEL LATERAL) ---
 with st.sidebar:
     st.write(f"👤 **Usuario:** {st.session_state.user_email}")
-    st.title("📂 Mis Búsquedas")
     
+    # --- SECCIÓN DE GEMAS (PROYECTOS) ---
+    st.title("💎 Mis Gemas (IAs)")
+    gema_nombres = list(st.session_state.gemas.keys())
+    st.session_state.selected_gema = st.selectbox("Selecciona tu Proyecto/Gema:", gema_nombres)
+    
+    with st.expander("➕ Crear Nueva Gema"):
+        nombre_gema = st.text_input("Nombre de la Gema (ej: Tutor de Tesis)")
+        instruccion_gema = st.text_area("Instrucciones (¿Cómo debe actuar?)", placeholder="Ej: Eres un experto en normas APA...")
+        if st.button("Guardar Gema"):
+            if nombre_gema and instruccion_gema:
+                st.session_state.gemas[nombre_gema] = instruccion_gema
+                st.success(f"Gema '{nombre_gema}' creada!")
+                st.rerun()
+
+    st.divider()
+    
+    # --- SECCIÓN DE HISTORIAL ---
+    st.title("📂 Mis Búsquedas")
     if st.button("➕ Nueva Búsqueda", use_container_width=True):
         nuevo_id = f"Búsqueda {len(st.session_state.chats) + 1}"
         st.session_state.chats[nuevo_id] = []
         st.session_state.current_chat = nuevo_id
         st.rerun()
     
-    st.divider()
-    
-    # Lista de búsquedas guardadas
     for chat_name in st.session_state.chats.keys():
         if st.button(chat_name, key=chat_name, use_container_width=True):
             st.session_state.current_chat = chat_name
             st.rerun()
 
-    st.spacer = st.empty()
     if st.button("🚪 Cerrar Sesión"):
         del st.session_state.user_email
         st.rerun()
 
 # --- CUERPO PRINCIPAL ---
-st.title("🤖 EVANS.DA")
-st.caption(f"Conversación: {st.session_state.current_chat}")
+st.title(f"🤖 EVANS.DA: {st.session_state.selected_gema}")
+st.caption(f"Conversación activa en: {st.session_state.current_chat}")
 
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
@@ -102,22 +119,20 @@ def procesar_archivo(file_name, file_content):
     except Exception as e:
         return f"\nError en {file_name}: {e}\n"
 
-# Renderizar historial del chat actual
+# Renderizar historial
 for message in st.session_state.chats[st.session_state.current_chat]:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
 # --- ÁREA DE ENTRADA FIJA ---
 archivos_nuevos = st.file_uploader("", accept_multiple_files=True, label_visibility="collapsed")
-prompt = st.chat_input("Escribe tu mensaje aquí...")
+prompt = st.chat_input(f"Habla con tu Gema {st.session_state.selected_gema}...")
 
 if prompt:
-    # Guardar mensaje del usuario
     st.session_state.chats[st.session_state.current_chat].append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Recopilar contexto (Carpeta data + Subidos)
     contexto_total = ""
     if os.path.exists("data"):
         for root, dirs, files in os.walk("data"):
@@ -129,18 +144,19 @@ if prompt:
         for f in archivos_nuevos:
             contexto_total += procesar_archivo(f.name, f.read())
 
-    # Respuesta de la IA
+    # --- LÓGICA DE RESPUESTA CON GEMA ---
     with st.chat_message("assistant"):
-        with st.spinner("EVANS.DA está analizando..."):
+        with st.spinner(f"Analizando como {st.session_state.selected_gema}..."):
             try:
-                instrucciones = f"Eres EVANS.DA. Responde usando este contexto: {contexto_total[:15000]}"
+                instruccion_personalizada = st.session_state.gemas[st.session_state.selected_gema]
+                contexto_final = f"{instruccion_personalizada}\n\nCONTEXTO: {contexto_total[:12000]}"
+
                 completion = client.chat.completions.create(
-                    messages=[{"role": "system", "content": instrucciones}, {"role": "user", "content": prompt}],
+                    messages=[{"role": "system", "content": contexto_final}, {"role": "user", "content": prompt}],
                     model="llama-3.3-70b-versatile",
                 )
                 respuesta = completion.choices[0].message.content
                 st.markdown(respuesta)
-                # Guardar respuesta en el historial
                 st.session_state.chats[st.session_state.current_chat].append({"role": "assistant", "content": respuesta})
                 st.rerun()
                 
