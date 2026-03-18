@@ -26,21 +26,31 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- MANEJO ROBUSTO DE SECRETOS (PREVENCIÓN DE TYPEERROR) ---
-# Intentamos obtener los secretos de la sección [google_auth], si falla, los busca en la raíz
+# --- MANEJO ROBUSTO DE SECRETOS ---
+# Esta lógica previene el TypeError buscando en ambos lugares posibles
 try:
-    auth_secrets = st.secrets["google_auth"]
-except KeyError:
-    auth_secrets = st.secrets
+    if "google_auth" in st.secrets:
+        auth_data = st.secrets["google_auth"]
+    else:
+        auth_data = st.secrets
+    
+    # Extraer valores con seguridad
+    s_key = auth_data["secret_key"]
+    c_id = auth_data["client_id"]
+    c_sec = auth_data["client_secret"]
+    r_uri = auth_data["redirect_uri"]
+except Exception as e:
+    st.error(f"Error cargando secretos: {e}")
+    st.stop()
 
 # --- LOGIN REAL CON GOOGLE ---
 authenticator = Authenticate(
-    secret_key=auth_secrets["secret_key"],
+    secret_key=s_key,
     cookie_name='evans_da_auth',
     cookie_key='evans_da_cookie',
-    client_id=auth_secrets["client_id"],
-    client_secret=auth_secrets["client_secret"],
-    redirect_uri=auth_secrets["redirect_uri"],
+    client_id=c_id,
+    client_secret=c_sec,
+    redirect_uri=r_uri,
 )
 
 authenticator.check_authenticity()
