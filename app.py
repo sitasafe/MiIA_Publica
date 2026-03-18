@@ -7,20 +7,39 @@ import pandas as pd
 from pptx import Presentation
 import io
 
-# Configuración visual
+# Configuración visual estilo ChatGPT
 st.set_page_config(page_title="EVANS.DA 🚀", page_icon="🤖", layout="centered")
 
-# CSS para pegar el botón de subida al input
+# --- CSS PARA INTEGRAR EL BOTÓN "+" EN LA BARRA DE CHAT ---
 st.markdown("""
     <style>
-    .stChatInputContainer {
-        padding-bottom: 1rem;
-    }
-    /* Estilo para que el uploader parezca un botón pequeño */
+    /* Estilo para que el cargador de archivos parezca un botón circular '+' */
     section[data-testid="stFileUploadDropzone"] {
-        padding: 0px !important;
+        padding: 0 !important;
         border: none !important;
         background-color: transparent !important;
+        width: 40px !important;
+        min-height: 40px !important;
+    }
+    .stFileUploadDropzone div div {
+        display: none; /* Esconde el texto de 'drag and drop' */
+    }
+    .stFileUploadDropzone::before {
+        content: '＋';
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        color: #555;
+        border: 2px solid #ccc;
+        border-radius: 50%;
+        width: 35px;
+        height: 35px;
+        cursor: pointer;
+    }
+    /* Alineación de la barra inferior */
+    .stChatInputContainer {
+        padding-bottom: 20px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -45,9 +64,7 @@ def procesar_archivo(file_name, file_content):
     except Exception as e:
         return f"\nError en {file_name}: {e}\n"
 
-# --- ZONA DE CHAT E INPUT ESTILO CHATGPT ---
-
-# 1. Contenedor para el historial de mensajes
+# Historial de Chat
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -55,41 +72,36 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# 2. Barra inferior flotante con Columnas
-# Usamos columnas para poner el botón "+" y el input en la misma línea visual
-col1, col2 = st.columns([0.1, 0.9])
+# --- ZONA DE ENTRADA ESTILO CHATGPT ---
+# Usamos columnas muy desiguales para que el '+' esté pegado al chat
+col_plus, col_chat = st.columns([0.1, 0.9])
 
-with col1:
-    # El cargador de archivos ahora es solo un icono de "+"
-    uploaded_files = st.file_uploader("➕", accept_multiple_files=True, label_visibility="collapsed")
+with col_plus:
+    # Este file_uploader ahora se ve como un botón '+' gracias al CSS arriba
+    uploaded_files = st.file_uploader("", accept_multiple_files=True, label_visibility="collapsed")
 
-with col2:
+with col_chat:
     prompt = st.chat_input("Pregunta lo que quieras...")
 
-# 3. Lógica de Respuesta
 if prompt:
-    # Guardamos y mostramos mensaje del usuario
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Procesamos archivos (los de la carpeta 'data' + los recién subidos)
+    # Procesar todo el conocimiento (fijo y subido)
     contexto_total = ""
-    # Archivos en carpeta fija
     if os.path.exists("data"):
         for root, dirs, files in os.walk("data"):
             for archivo in files:
                 with open(os.path.join(root, archivo), "rb") as f:
                     contexto_total += procesar_archivo(archivo, f.read())
     
-    # Archivos subidos dinámicamente
     if uploaded_files:
         for uploaded_file in uploaded_files:
             contexto_total += procesar_archivo(uploaded_file.name, uploaded_file.read())
 
-    # Generamos respuesta de la IA
     with st.chat_message("assistant"):
-        with st.spinner("Pensando..."):
+        with st.spinner("Analizando..."):
             try:
                 instrucciones = f"Eres EVANS.DA. Contexto: {contexto_total[:15000]}"
                 chat_completion = client.chat.completions.create(
