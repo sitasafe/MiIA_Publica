@@ -13,12 +13,12 @@ from duckduckgo_search import DDGS
 
 # --- 1. CONFIGURACIÓN RESPONSIVE ---
 st.set_page_config(
-    page_title="EVANS.DA Global", 
+    page_title="EVANS.DA Research ia", 
     page_icon="🌎", 
-    layout="wide", # Usa todo el ancho disponible
-    initial_sidebar_state="collapsed" # Colapsado en móvil para dar espacio
+    layout="wide", 
+    initial_sidebar_state="collapsed"
 )
-sns.set_theme(style="whitegrid", context="talk") # "talk" hace los textos del gráfico más grandes y legibles
+sns.set_theme(style="whitegrid", context="talk") 
 
 if "user_id" not in st.session_state:
     st.session_state.user_id = str(uuid.uuid4())
@@ -32,14 +32,15 @@ def load_embeddings():
 embeddings = load_embeddings()
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# --- 2. INVESTIGACIÓN GLOBAL ---
-def search_global(query):
+# --- 2. FUNCIÓN DE BÚSQUEDA WEB (GLOBAL: EN + ES) ---
+def search_internet(query):
     try:
         with DDGS() as ddgs:
-            res_es = [f"[ES] {r['body']}" for r in ddgs.text(query, max_results=4)]
-            res_en = [f"[EN] {r['body']}" for r in ddgs.text(f"{query} academic research MIT Harvard", max_results=4)]
+            res_es = [f"[ES] {r['body']}" for r in ddgs.text(query, max_results=5)]
+            res_en = [f"[EN] {r['body']}" for r in ddgs.text(f"{query} academic research paper MIT Harvard", max_results=5)]
             return "\n\n".join(res_es + res_en)
-    except: return "Error en búsqueda global."
+    except Exception as e:
+        return f"Error web: {e}"
 
 # --- 3. GENERADOR DE GRÁFICOS RESPONSIVE ---
 def generate_chart(df, query):
@@ -48,7 +49,6 @@ def generate_chart(df, query):
         cats = df.select_dtypes(include=['object', 'category']).columns.tolist()
         
         if nums:
-            # Creamos el gráfico con un tamaño base adaptable
             fig, ax = plt.subplots(figsize=(8, 5))
             if any(x in query.lower() for x in ["barra", "bar"]):
                 sns.barplot(data=df, x=cats[0] if cats else df.index, y=nums[0], ax=ax, palette="viridis")
@@ -58,12 +58,13 @@ def generate_chart(df, query):
                 sns.lineplot(data=df, x=df.index, y=nums[0], ax=ax, marker="o")
             
             plt.xticks(rotation=45)
-            plt.tight_layout() # Evita que los textos se corten
-            st.pyplot(fig, use_container_width=True) # <--- CLAVE PARA RESPONSIVE
-            return "📊 Visualización adaptada generada."
-    except: return "⚠️ No pude procesar el gráfico."
+            plt.tight_layout()
+            st.pyplot(fig, use_container_width=True)
+            return "📊 Visualización generada con éxito."
+    except:
+        return "⚠️ No se pudo generar el gráfico automáticamente."
 
-# --- 4. EXTRACCIÓN ---
+# --- 4. EXTRACCIÓN DE TEXTO (PDF, WORD, EXCEL, CSV) ---
 def extract_text(file):
     name = file.name.lower()
     try:
@@ -71,62 +72,108 @@ def extract_text(file):
         if name.endswith(".pdf"):
             reader = PdfReader(io.BytesIO(file.read()))
             return "".join([p.extract_text() or "" for p in reader.pages[:50]])
-        elif name.endswith((".xlsx", ".csv")):
-            df = pd.read_csv(file) if name.endswith(".csv") else pd.read_excel(file)
+        elif name.endswith(".docx"):
+            doc = Document(io.BytesIO(file.read()))
+            return "\n".join([p.text for p in doc.paragraphs])
+        elif name.endswith(".xlsx") or name.endswith(".xls"):
+            df = pd.read_excel(io.BytesIO(file.read()))
             st.session_state[f"df_{name}"] = df
-            return f"Datos de {name}:\n{df.head(20).to_string(index=False)}"
+            return f"Datos de la tabla {name}:\n" + df.to_string(index=False)
+        elif name.endswith(".csv"):
+            df = pd.read_csv(io.BytesIO(file.read()))
+            st.session_state[f"df_{name}"] = df
+            return f"Datos del CSV {name}:\n" + df.to_string(index=False)
         return ""
-    except: return ""
+    except Exception as e:
+        logging.error(f"Error en {name}: {e}")
+        return ""
 
-# --- 5. INTERFAZ ---
+# --- 5. INTERFAZ LATERAL ---
 with st.sidebar:
-    st.header("📂 Datos de Maestría")
-    uploaded_files = st.file_uploader("Sube PDF o Excel", accept_multiple_files=True, type=['pdf','docx','xlsx','csv'])
+    st.header("📂 Base de Conocimiento")
+    st.info("Formatos: PDF, DOCX, XLSX, CSV")
+    uploaded_files = st.file_uploader("Sube tus archivos", accept_multiple_files=True, type=['pdf','docx','xlsx', 'csv'])
     
     if st.button("🔄 Indexar Todo", use_container_width=True):
         path = f"./vectorstores/{st.session_state.user_id}"
         if os.path.exists(path): shutil.rmtree(path)
+        
         if uploaded_files:
             texts, metas = [], []
-            for f in uploaded_files:
-                t = extract_text(f)
-                if t:
-                    chunks = [t[i:i+1500] for i in range(0, len(t), 1300)]
-                    texts.extend(chunks)
-                    metas.extend([{"source": f.name}] * len(chunks))
-            if texts:
-                Chroma.from_texts(texts, embeddings, persist_directory=path, metadatas=metas)
-                st.success("¡Conocimiento Listo!")
+            with st.spinner("Leyendo documentos y tablas..."):
+                for f in uploaded_files:
+                    t = extract_text(f)
+                    if t:
+                        chunks = [t[i:i+1500] for i in range(0, len(t), 1300)]
+                        texts.extend(chunks)
+                        metas.extend([{"source": f.name}] * len(chunks))
+                
+                if texts:
+                    Chroma.from_texts(texts, embeddings, persist_directory=path, metadatas=metas)
+                    st.success(f"¡{len(uploaded_files)} archivos listos!")
 
-# --- 6. CHAT ---
-st.title("🤖🌎 EVANS.DA: Global AI")
+# --- 6. CHAT HÍBRIDO (INTEGRACIÓN CORREGIDA) ---
+st.title("🤖🌎 EVANS.DA: Inteligencia Total 2026")
 
-# Contenedor para el historial de chat
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
+    with st.chat_message(msg["role"]): 
         st.markdown(msg["content"])
 
-prompt = st.chat_input("Pregunta algo o pide un gráfico...")
+prompt = st.chat_input("Analiza mi Excel o investiga en Harvard/MIT...")
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"): st.markdown(prompt)
+    with st.chat_message("user"): 
+        st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        # Lógica de Gráficos
-        if any(x in prompt.lower() for x in ["grafic", "gráfico", "barra", "pastel"]):
+        # A. Lógica de Gráficos
+        if any(x in prompt.lower() for x in ["grafic", "gráfico", "barra", "pastel", "pie"]):
             for key in [k for k in st.session_state.keys() if k.startswith("df_")]:
-                st.write(f"Analizando: {key.replace('df_', '')}")
                 generate_chart(st.session_state[key], prompt)
 
-        # Lógica de Respuesta Híbrida
         placeholder = st.empty()
         full_response = ""
         
-        with st.status("🔍 Investigando globalmente...", expanded=False):
-            global_context = search_global(prompt)
-            # RAG Local
-            path = f"./vectorstores/{st.session_state.user_id}"
-            local_context = ""
-            if os.path.exists(path) and os.listdir(path):
-                vs = Chroma(persist_directory=path, embedding_function=
+        # B. Búsqueda Local (RAG) - PARÉNTESIS BLINDADOS
+        path = f"./vectorstores/{st.session_state.user_id}"
+        local_context = ""
+        if os.path.exists(path) and os.listdir(path):
+            # Aquí se cerró correctamente el paréntesis de embeddings
+            vs = Chroma(persist_directory=path, embedding_function=embeddings)
+            docs = vs.similarity_search(prompt, k=4)
+            local_context = "\n---\n".join([f"Archivo: {d.metadata['source']}\n{d.page_content}" for d in docs])
+
+        # C. Búsqueda Web Global
+        with st.status("🌐 Consultando internet global 2026..."):
+            web_context = search_internet(prompt)
+
+        # D. Generación con REGLAS ESTRICTAS
+        fecha_hoy = datetime.now().strftime("%d de %B de %Y")
+        sys_msg = (
+            f"Hoy es {fecha_hoy}. Eres EVANS.DA. "
+            "REGLAS ESTRICTAS DE VERDAD: "
+            "1. Usa EXCLUSIVAMENTE <LOCAL> y <WEB>. "
+            "2. Traduce información en inglés [EN] al español académico. "
+            "3. Si no hay información, di: 'No cuento con esa información'. "
+            "4. Cita siempre la fuente ([EN], [ES] o nombre de archivo)."
+        )
+        
+        payload = f"LOCAL:\n{local_context}\n\nWEB:\n{web_context}\n\nPREGUNTA: {prompt}"
+
+        try:
+            stream = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": payload}],
+                temperature=0.2,
+                stream=True
+            )
+            for chunk in stream:
+                content = getattr(chunk.choices[0].delta, "content", "")
+                if content:
+                    full_response += content
+                    placeholder.markdown(full_response + "▌")
+            placeholder.markdown(full_response)
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
+        except Exception as e:
+            st.error(f"Error de generación: {e}")
