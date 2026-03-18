@@ -1,6 +1,6 @@
 import streamlit as st
 import io, uuid, logging, os, shutil
-import pandas as pd # <--- NUEVO: Motor para Excel
+import pandas as pd
 from datetime import datetime
 from docx import Document
 from pypdf import PdfReader
@@ -33,32 +33,23 @@ def search_internet(query):
     except Exception as e:
         return f"Error web: {e}"
 
-# --- 3. EXTRACCIÓN DE TEXTO (AHORA CON EXCEL) ---
+# --- 3. EXTRACCIÓN DE TEXTO ---
 def extract_text(file):
     name = file.name.lower()
     try:
         file.seek(0)
-        # LÓGICA PARA PDF
         if name.endswith(".pdf"):
             reader = PdfReader(io.BytesIO(file.read()))
             return "".join([p.extract_text() or "" for p in reader.pages[:50]])
-        
-        # LÓGICA PARA WORD
         elif name.endswith(".docx"):
             doc = Document(io.BytesIO(file.read()))
             return "\n".join([p.text for p in doc.paragraphs])
-        
-        # LÓGICA PARA EXCEL (NUEVO)
         elif name.endswith(".xlsx") or name.endswith(".xls"):
             df = pd.read_excel(io.BytesIO(file.read()))
-            # Convertimos la tabla a un formato de texto que la IA entienda
             return f"Datos de la tabla {name}:\n" + df.to_string(index=False)
-        
-        # LÓGICA PARA CSV (NUEVO)
         elif name.endswith(".csv"):
             df = pd.read_csv(io.BytesIO(file.read()))
             return f"Datos del CSV {name}:\n" + df.to_string(index=False)
-            
         return ""
     except Exception as e:
         logging.error(f"Error en {name}: {e}")
@@ -104,7 +95,7 @@ if prompt:
         placeholder = st.empty()
         full_response = ""
         
-        # A. Búsqueda Local (PDF/Word/Excel)
+        # A. Búsqueda Local
         path = f"./vectorstores/{st.session_state.user_id}"
         local_context = ""
         if os.path.exists(path) and os.listdir(path):
@@ -116,13 +107,17 @@ if prompt:
         with st.status("🌐 Consultando internet 2026..."):
             web_context = search_internet(prompt)
 
-        # C. Generación
+        # C. Generación con REGLAS ESTRICTAS DE VERDAD
         fecha_hoy = datetime.now().strftime("%d de %B de %Y")
+        
+        # --- BLOQUE DE SEGURIDAD ACTUALIZADO ---
         sys_msg = (
             f"Hoy es {fecha_hoy}. Eres EVANS.DA. "
-            "Cuentas con dos fuentes: <DOCS_LOCALES> (que pueden ser textos o tablas de Excel) "
-            "y <WEB_2026>. Tu misión es dar respuestas exactas. "
-            "Si el usuario te pide analizar datos numéricos del Excel, hazlo con precisión matemática."
+            "REGLAS ESTRICTAS DE VERDAD: "
+            "1. Usa EXCLUSIVAMENTE la información de <DOCS_LOCALES> y <WEB_2026>. "
+            "2. Si la respuesta no está en ninguna de las dos fuentes, di: 'No cuento con esa información'. "
+            "3. NO inventes datos, nombres o fechas. "
+            "4. Para datos numéricos de Excel, cita el nombre del archivo fuente."
         )
         
         payload = f"LOCAL:\n{local_context}\n\nWEB:\n{web_context}\n\nPREGUNTA: {prompt}"
@@ -131,7 +126,7 @@ if prompt:
             stream = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": payload}],
-                temperature=0.2,
+                temperature=0.2, # Mantenemos temperatura baja para evitar creatividad
                 stream=True
             )
             for chunk in stream:
