@@ -101,7 +101,7 @@ with st.sidebar:
                 st.success("¡Cerebro actualizado!")
 
 # --- 6. CHAT AGÉNTICO ---
-st.title("🧠🌎 EVANS.DA: Super-Intelligence IA")
+st.title("🧠EVANS.DA: Super-Intelligence IA")
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]): st.markdown(msg["content"])
