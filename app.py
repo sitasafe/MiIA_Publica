@@ -9,7 +9,7 @@ from langchain_community.vectorstores import Chroma
 from duckduckgo_search import DDGS # <--- BUSCADOR EN VIVO
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="EVANS.DA Híbrido 2026", page_icon="🌐", layout="wide")
+st.set_page_config(page_title="EVANS.DA", page_icon="🌐", layout="wide")
 
 if "user_id" not in st.session_state:
     st.session_state.user_id = str(uuid.uuid4())
