@@ -18,28 +18,27 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # 3. Entrada de usuario
-if prompt := st.chat_input("Escribe tu duda sobre las Unidades 1-4..."):
+if prompt := st.chat_input("Escribe tu duda o pregunta general..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # 4. Respuesta de la IA con ENTRENAMIENTO
+    # 4. Respuesta de la IA con el nuevo entrenamiento equilibrado
     with st.chat_message("assistant"):
         with st.spinner("Pensando..."):
             try:
-                # --- AQUÍ DEFINES LAS INSTRUCCIONES (EL ENTRENAMIENTO) ---
+                # --- NUEVAS INSTRUCCIONES EQUILIBRADAS ---
                 instrucciones = """
-                Eres EVANS.DA, un asistente experto en seguridad y prevención. 
-                Tu objetivo es ayudar a los estudiantes con las Unidades 1 a 4.
-                Responde siempre en español, de forma profesional y educativa. 
-                Si no sabes algo, admítelo, pero intenta guiar al usuario.
+                Eres EVANS.DA, una IA de conocimiento general con una especialización profunda en Seguridad y Prevención (Unidades 1 a 4).
+                1. Si te preguntan sobre cultura, ciencia o cualquier tema general, responde de forma directa y veraz sin forzar la relación con la seguridad.
+                2. Si te preguntan sobre las Unidades 1 a 4, actúa como el tutor experto más avanzado, dando detalles técnicos y precisos.
+                Responde siempre en español y mantén un tono amable.
                 """
 
-                # Enviamos las instrucciones en el rol de "system"
                 chat_completion = client.chat.completions.create(
                     messages=[
-                        {"role": "system", "content": instrucciones}, # El entrenamiento
-                        {"role": "user", "content": prompt}            # La pregunta
+                        {"role": "system", "content": instrucciones},
+                        {"role": "user", "content": prompt}
                     ],
                     model="llama-3.3-70b-versatile", 
                 )
