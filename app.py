@@ -3,162 +3,132 @@ from groq import Groq
 import os
 from pypdf import PdfReader
 from docx import Document
-import pandas as pd
-from pptx import Presentation
 import io
+from streamlit_google_auth import Authenticate
 
 # 1. Configuración de página
 st.set_page_config(page_title="EVANS.DA 🚀", page_icon="🤖", layout="centered")
 
-# --- CSS PARA EL EFECTO CHATGPT Y BARRA FIJA ---
+# --- CSS AVANZADO PARA EL MENÚ FLOTANTE ---
 st.markdown("""
     <style>
-    .main .block-container { padding-bottom: 200px; }
-    .stFileUploadDropzone {
-        min-height: 0px !important;
-        padding: 5px !important;
-        border-radius: 12px !important;
-        background-color: #f0f2f6 !important;
-        border: 1px solid #ddd !important;
+    .main .block-container { padding-bottom: 150px; }
+    
+    /* Estilo para que el input y el botón parezcan una sola barra */
+    div[data-testid="stHorizontalBlock"] {
+        align-items: end;
+        background-color: #f0f2f6;
+        padding: 10px;
+        border-radius: 20px;
+        border: 1px solid #ddd;
     }
-    .stFileUploadDropzone div div { display: none; }
-    .stFileUploadDropzone::before {
-        content: '📎 Adjuntar archivos para esta sesión';
-        font-size: 13px;
-        color: #555;
-        text-align: center;
-        display: block;
-        padding: 5px;
+    
+    /* Ocultar bordes del popover para que parezca un botón de "+" */
+    button[data-testid="stBaseButton-secondary"] {
+        border-radius: 50% !important;
+        width: 40px !important;
+        height: 40px !important;
+        padding: 0px !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- LÓGICA DE LOGIN ---
-if "user_email" not in st.session_state:
-    st.title("🔐 Acceso EVANS.DA")
-    email = st.text_input("Ingresa tu correo para continuar:")
-    if st.button("Ingresar"):
-        if "@" in email:
-            st.session_state.user_email = email
-            st.rerun()
-        else:
-            st.error("Por favor ingresa un correo válido.")
+# --- CONFIGURACIÓN DE AUTENTICACIÓN ---
+authenticator = Authenticate(
+    secret_key=st.secrets["google_auth"]["secret_key"],
+    cookie_name='evans_da_auth',
+    cookie_key='evans_da_cookie',
+    client_id=st.secrets["google_auth"]["client_id"],
+    client_secret=st.secrets["google_auth"]["client_secret"],
+    redirect_uri=st.secrets["google_auth"]["redirect_uri"],
+)
+
+authenticator.check_authenticity()
+
+if not st.session_state.get('connected'):
+    st.title("🤖 Bienvenido a EVANS.DA")
+    authenticator.login()
     st.stop()
 
-# --- INICIALIZACIÓN DE ESTADOS ---
-if "chats" not in st.session_state:
-    st.session_state.chats = {"Chat Inicial": []}
-if "current_chat" not in st.session_state:
-    st.session_state.current_chat = "Chat Inicial"
-if "gemas" not in st.session_state:
-    st.session_state.gemas = {"Estándar": "Eres EVANS.DA, un asistente útil y profesional."}
-if "selected_gema" not in st.session_state:
-    st.session_state.selected_gema = "Estándar"
+# --- DATOS DEL USUARIO Y ESTADOS ---
+user_info = st.session_state.get('user_info')
+if "chats" not in st.session_state: st.session_state.chats = {"Nueva Consulta": []}
+if "current_chat" not in st.session_state: st.session_state.current_chat = "Nueva Consulta"
+if "gemas" not in st.session_state: st.session_state.gemas = {"Estándar": "Eres EVANS.DA, un asistente profesional."}
+if "selected_gema" not in st.session_state: st.session_state.selected_gema = "Estándar"
 
-# --- SIDEBAR (PANEL LATERAL) ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.write(f"👤 **Usuario:** {st.session_state.user_email}")
+    st.write(f"👤 {user_info.get('email')}")
+    st.title("💎 Gemas")
+    st.session_state.selected_gema = st.selectbox("IA activa:", list(st.session_state.gemas.keys()))
     
-    # --- SECCIÓN DE GEMAS (PROYECTOS) ---
-    st.title("💎 Mis Gemas (IAs)")
-    gema_nombres = list(st.session_state.gemas.keys())
-    st.session_state.selected_gema = st.selectbox("Selecciona tu Proyecto/Gema:", gema_nombres)
-    
-    with st.expander("➕ Crear Nueva Gema"):
-        nombre_gema = st.text_input("Nombre de la Gema (ej: Tutor de Tesis)")
-        instruccion_gema = st.text_area("Instrucciones (¿Cómo debe actuar?)", placeholder="Ej: Eres un experto en normas APA...")
-        if st.button("Guardar Gema"):
-            if nombre_gema and instruccion_gema:
-                st.session_state.gemas[nombre_gema] = instruccion_gema
-                st.success(f"Gema '{nombre_gema}' creada!")
-                st.rerun()
-
-    st.divider()
-    
-    # --- SECCIÓN DE HISTORIAL ---
-    st.title("📂 Mis Búsquedas")
-    if st.button("➕ Nueva Búsqueda", use_container_width=True):
-        nuevo_id = f"Búsqueda {len(st.session_state.chats) + 1}"
-        st.session_state.chats[nuevo_id] = []
-        st.session_state.current_chat = nuevo_id
-        st.rerun()
-    
-    for chat_name in st.session_state.chats.keys():
-        if st.button(chat_name, key=chat_name, use_container_width=True):
-            st.session_state.current_chat = chat_name
+    with st.expander("✨ Crear Gema"):
+        n = st.text_input("Nombre:")
+        i = st.text_area("Instrucciones:")
+        if st.button("Guardar"):
+            st.session_state.gemas[n] = i
             st.rerun()
-
-    if st.button("🚪 Cerrar Sesión"):
-        del st.session_state.user_email
+    st.divider()
+    if st.button("➕ Nuevo Chat", use_container_width=True):
+        id_c = f"Chat {len(st.session_state.chats) + 1}"
+        st.session_state.chats[id_c] = []
+        st.session_state.current_chat = id_c
         st.rerun()
 
-# --- CUERPO PRINCIPAL ---
-st.title(f"🤖 EVANS.DA: {st.session_state.selected_gema}")
-st.caption(f"Conversación activa en: {st.session_state.current_chat}")
+# --- INTERFAZ DE CHAT ---
+st.title("🤖 EVANS.DA")
 
-client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+# Mostrar mensajes
+for msg in st.session_state.chats[st.session_state.current_chat]:
+    with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-def procesar_archivo(file_name, file_content):
-    texto = f"\n--- Fuente: {file_name} ---\n"
-    try:
-        if file_name.endswith(".pdf"):
-            reader = PdfReader(io.BytesIO(file_content))
-            for page in reader.pages: texto += (page.extract_text() or "") + "\n"
-        elif file_name.endswith(".docx"):
-            doc = Document(io.BytesIO(file_content))
-            for para in doc.paragraphs: texto += para.text + "\n"
-        elif file_name.endswith(".xlsx"):
-            df = pd.read_excel(io.BytesIO(file_content))
-            texto += df.to_string() + "\n"
-        elif file_name.endswith(".pptx"):
-            prs = Presentation(io.BytesIO(file_content))
-            for slide in prs.slides:
-                for shape in slide.shapes:
-                    if hasattr(shape, "text"): texto += shape.text + "\n"
-        return texto
-    except Exception as e:
-        return f"\nError en {file_name}: {e}\n"
-
-# Renderizar historial
-for message in st.session_state.chats[st.session_state.current_chat]:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-# --- ÁREA DE ENTRADA FIJA ---
-archivos_nuevos = st.file_uploader("", accept_multiple_files=True, label_visibility="collapsed")
-prompt = st.chat_input(f"Habla con tu Gema {st.session_state.selected_gema}...")
+# --- BARRA DE ENTRADA TIPO PERPLEXITY ---
+# Creamos un contenedor fijo al fondo mediante columnas
+with st.container():
+    col1, col2 = st.columns([0.1, 0.9])
+    
+    with col1:
+        # El botón "+" usando un Popover (Menú desplegable)
+        menu = st.popover("➕")
+        with menu:
+            st.markdown("### Herramientas")
+            archivos = st.file_uploader("Añadir archivos", accept_multiple_files=True, label_visibility="collapsed")
+            pensar = st.checkbox("💡 Modo Pensar")
+            web_search = st.checkbox("🌐 Búsqueda Internet")
+    
+    with col2:
+        prompt = st.chat_input("Pregunta lo que quieras...")
 
 if prompt:
+    # 1. Guardar mensaje usuario
     st.session_state.chats[st.session_state.current_chat].append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    contexto_total = ""
-    if os.path.exists("data"):
-        for root, dirs, files in os.walk("data"):
-            for archivo in files:
-                with open(os.path.join(root, archivo), "rb") as f:
-                    contexto_total += procesar_archivo(archivo, f.read())
     
-    if archivos_nuevos:
-        for f in archivos_nuevos:
-            contexto_total += procesar_archivo(f.name, f.read())
+    # 2. Procesar archivos si los hay
+    contexto = ""
+    if archivos:
+        for f in archivos:
+            if f.name.endswith(".pdf"):
+                reader = PdfReader(f)
+                for page in reader.pages: contexto += page.extract_text()
+            elif f.name.endswith(".docx"):
+                doc = Document(f)
+                for p in doc.paragraphs: contexto += p.text + "\n"
 
-    # --- LÓGICA DE RESPUESTA CON GEMA ---
+    # 3. Respuesta IA
     with st.chat_message("assistant"):
-        with st.spinner(f"Analizando como {st.session_state.selected_gema}..."):
-            try:
-                instruccion_personalizada = st.session_state.gemas[st.session_state.selected_gema]
-                contexto_final = f"{instruccion_personalizada}\n\nCONTEXTO: {contexto_total[:12000]}"
-
-                completion = client.chat.completions.create(
-                    messages=[{"role": "system", "content": contexto_final}, {"role": "user", "content": prompt}],
-                    model="llama-3.3-70b-versatile",
-                )
-                respuesta = completion.choices[0].message.content
-                st.markdown(respuesta)
-                st.session_state.chats[st.session_state.current_chat].append({"role": "assistant", "content": respuesta})
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"Error: {e}")
+        with st.spinner("Procesando..."):
+            client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+            inst = st.session_state.gemas[st.session_state.selected_gema]
+            
+            # Ajustar instrucciones si "Modo Pensar" está activo
+            if pensar: inst += " Responde de forma muy analítica y detallada paso a paso."
+            
+            res = client.chat.completions.create(
+                messages=[{"role": "system", "content": f"{inst}\nContexto: {contexto[:10000]}"}, {"role": "user", "content": prompt}],
+                model="llama-3.3-70b-versatile",
+            ).choices[0].message.content
+            
+            st.markdown(res)
+            st.session_state.chats[st.session_state.current_chat].append({"role": "assistant", "content": res})
+            st.rerun()
