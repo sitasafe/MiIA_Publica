@@ -7,13 +7,21 @@ import pandas as pd
 from pptx import Presentation
 import io
 
-# Configuración visual estilo ChatGPT
+# Configuración visual
 st.set_page_config(page_title="EVANS.DA 🚀", page_icon="🤖", layout="centered")
 
-# CSS para mejorar la estética del área de archivos
+# CSS para pegar el botón de subida al input
 st.markdown("""
     <style>
-    .stChatInputContainer {padding-bottom: 20px;}
+    .stChatInputContainer {
+        padding-bottom: 1rem;
+    }
+    /* Estilo para que el uploader parezca un botón pequeño */
+    section[data-testid="stFileUploadDropzone"] {
+        padding: 0px !important;
+        border: none !important;
+        background-color: transparent !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -33,35 +41,13 @@ def procesar_archivo(file_name, file_content):
         elif file_name.endswith(".xlsx"):
             df = pd.read_excel(io.BytesIO(file_content))
             texto += df.to_string() + "\n"
-        elif file_name.endswith(".pptx"):
-            prs = Presentation(io.BytesIO(file_content))
-            for slide in prs.slides:
-                for shape in slide.shapes:
-                    if hasattr(shape, "text"): texto += shape.text + "\n"
         return texto
     except Exception as e:
         return f"\nError en {file_name}: {e}\n"
 
-# --- ZONA DE SUBIDA (Estilo Gemini) ---
-# Colocamos el cargador justo antes del chat_input
-with st.container():
-    uploaded_files = st.file_uploader("📎 Añade archivos (PDF, Word, Excel, PPT)", 
-                                    accept_multiple_files=True, 
-                                    label_visibility="collapsed")
+# --- ZONA DE CHAT E INPUT ESTILO CHATGPT ---
 
-# Cargar conocimiento de carpeta 'data' y archivos subidos
-contexto_total = ""
-if os.path.exists("data"):
-    for root, dirs, files in os.walk("data"):
-        for archivo in files:
-            with open(os.path.join(root, archivo), "rb") as f:
-                contexto_total += procesar_archivo(archivo, f.read())
-
-if uploaded_files:
-    for uploaded_file in uploaded_files:
-        contexto_total += procesar_archivo(uploaded_file.name, uploaded_file.read())
-
-# Historial de Chat
+# 1. Contenedor para el historial de mensajes
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -69,14 +55,41 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Entrada de usuario (Barra inferior)
-if prompt := st.chat_input("Escribe tu mensaje aquí..."):
+# 2. Barra inferior flotante con Columnas
+# Usamos columnas para poner el botón "+" y el input en la misma línea visual
+col1, col2 = st.columns([0.1, 0.9])
+
+with col1:
+    # El cargador de archivos ahora es solo un icono de "+"
+    uploaded_files = st.file_uploader("➕", accept_multiple_files=True, label_visibility="collapsed")
+
+with col2:
+    prompt = st.chat_input("Pregunta lo que quieras...")
+
+# 3. Lógica de Respuesta
+if prompt:
+    # Guardamos y mostramos mensaje del usuario
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # Procesamos archivos (los de la carpeta 'data' + los recién subidos)
+    contexto_total = ""
+    # Archivos en carpeta fija
+    if os.path.exists("data"):
+        for root, dirs, files in os.walk("data"):
+            for archivo in files:
+                with open(os.path.join(root, archivo), "rb") as f:
+                    contexto_total += procesar_archivo(archivo, f.read())
+    
+    # Archivos subidos dinámicamente
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            contexto_total += procesar_archivo(uploaded_file.name, uploaded_file.read())
+
+    # Generamos respuesta de la IA
     with st.chat_message("assistant"):
-        with st.spinner("Analizando..."):
+        with st.spinner("Pensando..."):
             try:
                 instrucciones = f"Eres EVANS.DA. Contexto: {contexto_total[:15000]}"
                 chat_completion = client.chat.completions.create(
