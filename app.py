@@ -9,7 +9,7 @@ st.caption("Stack: Python + Groq Cloud + Streamlit")
 # 1. Conexión segura con la llave que pegaste en Streamlit
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# 2. Historial de chat (para que no se borren los mensajes al preguntar)
+# 2. Historial de chat
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -27,9 +27,10 @@ if prompt := st.chat_input("Escribe tu duda sobre las Unidades 1-4..."):
     with st.chat_message("assistant"):
         with st.spinner("Pensando..."):
             try:
+                # AQUÍ ESTÁ EL CAMBIO IMPORTANTE:
                 chat_completion = client.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
-                    model="llama3-8b-8192",
+                    model="llama-3.3-70b-versatile", 
                 )
                 respuesta = chat_completion.choices[0].message.content
                 st.markdown(respuesta)
