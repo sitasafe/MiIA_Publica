@@ -1,36 +1,63 @@
 import streamlit as st
 from groq import Groq
 import os
-from pypdf import PdfReader # <-- Cambiado para usar pypdf
+from pypdf import PdfReader
+from docx import Document
+import pandas as pd
+from pptx import Presentation
 
-# Configuración visual
-st.set_page_config(page_title="EVANS.DA Híbrida 🚀", page_icon="🎓")
-st.title("🚀 EVANS.DA: Inteligencia Híbrida")
-st.caption("Conocimiento General + Tus PDFs de Maestría")
+# Configuración inicial
+st.set_page_config(page_title="EVANS.DA Multiformato 🚀", page_icon="📊")
+st.title("🚀 EVANS.DA: Inteligencia Total")
+st.caption("Lectura de PDF, Word, Excel, PPT + Conocimiento Global")
 
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# --- FUNCIÓN PARA LEER TODOS LOS PDFS EN LA CARPETA DATA ---
-def extraer_texto_pdfs():
+# --- FUNCIÓN PARA LEER TODOS LOS FORMATOS EN DATA ---
+def extraer_contenido_multiformato():
     texto_acumulado = ""
     ruta_data = "data"
-    if os.path.exists(ruta_data):
-        for archivo in os.listdir(ruta_data):
-            if archivo.endswith(".pdf"):
-                try:
-                    reader = PdfReader(os.path.join(ruta_data, archivo))
+    if not os.path.exists(ruta_data):
+        return ""
+
+    for root, dirs, files in os.walk(ruta_data):
+        for archivo in files:
+            ruta_completa = os.path.join(root, archivo)
+            try:
+                # 1. PDFs
+                if archivo.endswith(".pdf"):
+                    reader = PdfReader(ruta_completa)
                     for pagina in reader.pages:
-                        texto = pagina.extract_text()
-                        if texto:
-                            texto_acumulado += texto + "\n"
-                except Exception as e:
-                    st.error(f"Error leyendo {archivo}: {e}")
+                        texto_acumulado += pagina.extract_text() + "\n"
+                
+                # 2. WORD (.docx)
+                elif archivo.endswith(".docx"):
+                    doc = Document(ruta_completa)
+                    for para in doc.paragraphs:
+                        texto_acumulado += para.text + "\n"
+                
+                # 3. EXCEL (.xlsx)
+                elif archivo.endswith(".xlsx"):
+                    df = pd.read_excel(ruta_completa)
+                    texto_acumulado += f"\nDatos de Excel ({archivo}):\n" + df.to_string() + "\n"
+                
+                # 4. POWERPOINT (.pptx)
+                elif archivo.endswith(".pptx"):
+                    prs = Presentation(ruta_completa)
+                    for slide in prs.slides:
+                        for shape in slide.shapes:
+                            if hasattr(shape, "text"):
+                                texto_acumulado += shape.text + "\n"
+                                
+            except Exception as e:
+                st.error(f"Error con {archivo}: {e}")
+                
     return texto_acumulado
 
-# Cargamos el contenido de tus documentos
-contenido_pdfs = extraer_texto_pdfs()
+# Carga de archivos al iniciar la app
+contexto_archivos = extraer_contenido_multiformato()
 
-# Historial de Chat
+# Interfaz de Chat
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -38,26 +65,24 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Entrada de usuario
-if prompt := st.chat_input("Pregúntame lo que sea..."):
+if prompt := st.chat_input("Pregúntame sobre tus documentos o cualquier tema..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Buscando en documentos y cerebro general..."):
+        with st.spinner("Analizando información..."):
             try:
-                # INSTRUCCIONES HÍBRIDAS
                 instrucciones = f"""
-                Eres EVANS.DA, una IA de conocimiento general con acceso a documentos específicos del usuario.
+                Eres EVANS.DA, un asistente híbrido avanzado.
                 
-                CONTEXTO DE MIS DOCUMENTOS:
-                {contenido_pdfs[:8000]} 
+                CONTEXTO DE TUS ARCHIVOS (PDF, Word, Excel, PPT):
+                {contexto_archivos[:8000]} 
                 
-                REGLAS:
-                1. Si la pregunta se responde con el CONTEXTO de los PDFs, úsalo prioritariamente.
-                2. Si la pregunta es sobre cualquier otro tema del mundo, responde con la VERDAD universal.
-                3. Responde siempre en español de forma profesional.
+                INSTRUCCIONES:
+                1. Si la respuesta está en los archivos, dales prioridad.
+                2. Si es una pregunta general del mundo, responde con la verdad universal.
+                3. Responde siempre en español.
                 """
 
                 chat_completion = client.chat.completions.create(
@@ -67,10 +92,8 @@ if prompt := st.chat_input("Pregúntame lo que sea..."):
                     ],
                     model="llama-3.3-70b-versatile",
                 )
-                
                 respuesta = chat_completion.choices[0].message.content
                 st.markdown(respuesta)
                 st.session_state.messages.append({"role": "assistant", "content": respuesta})
-                
             except Exception as e:
-                st.error(f"Hubo un error: {e}")
+                st.error(f"Error en la respuesta: {e}")
