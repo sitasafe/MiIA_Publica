@@ -26,15 +26,21 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# --- MANEJO ROBUSTO DE SECRETOS (PREVENCIÓN DE TYPEERROR) ---
+# Intentamos obtener los secretos de la sección [google_auth], si falla, los busca en la raíz
+try:
+    auth_secrets = st.secrets["google_auth"]
+except KeyError:
+    auth_secrets = st.secrets
+
 # --- LOGIN REAL CON GOOGLE ---
-# Los datos se jalan automáticamente de los "Secrets" que configuraste
 authenticator = Authenticate(
-    secret_key=st.secrets["google_auth"]["secret_key"],
+    secret_key=auth_secrets["secret_key"],
     cookie_name='evans_da_auth',
     cookie_key='evans_da_cookie',
-    client_id=st.secrets["google_auth"]["client_id"],
-    client_secret=st.secrets["google_auth"]["client_secret"],
-    redirect_uri=st.secrets["google_auth"]["redirect_uri"],
+    client_id=auth_secrets["client_id"],
+    client_secret=auth_secrets["client_secret"],
+    redirect_uri=auth_secrets["redirect_uri"],
 )
 
 authenticator.check_authenticity()
@@ -56,7 +62,8 @@ if "gemas" not in st.session_state:
 
 # --- SIDEBAR (HISTORIAL Y GEMAS) ---
 with st.sidebar:
-    st.write(f"👤 {user_info.get('email')}")
+    if user_info:
+        st.write(f"👤 {user_info.get('email')}")
     st.title("💎 Mis Gemas")
     gema_actual = st.selectbox("IA activa:", list(st.session_state.gemas.keys()))
     
@@ -97,7 +104,6 @@ for msg in st.session_state.chats[st.session_state.current_chat]:
 with st.container():
     col1, col2 = st.columns([0.1, 0.9])
     with col1:
-        # Menú desplegable para subir archivos
         opciones = st.popover("➕")
         with opciones:
             st.write("📂 Adjuntar archivos")
@@ -111,7 +117,6 @@ if prompt:
     st.session_state.chats[st.session_state.current_chat].append({"role": "user", "content": prompt})
     with st.chat_message("user"): st.markdown(prompt)
 
-    # Procesar archivos adjuntos
     contexto = ""
     if files:
         for f in files: contexto += leer_archivo(f)
