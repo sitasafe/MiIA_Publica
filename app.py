@@ -1,5 +1,6 @@
 import streamlit as st
 import io, uuid, logging, os, shutil
+import pandas as pd # <--- NUEVO: Motor para Excel
 from datetime import datetime
 from docx import Document
 from pypdf import PdfReader
@@ -8,8 +9,8 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from duckduckgo_search import DDGS
 
-# --- 1. CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="EVANS.DA", page_icon="🌐", layout="wide")
+# --- 1. CONFIGURACIÓN ---
+st.set_page_config(page_title="EVANS.DA Multi-Doc", page_icon="📊", layout="wide")
 
 if "user_id" not in st.session_state:
     st.session_state.user_id = str(uuid.uuid4())
@@ -18,147 +19,127 @@ if "messages" not in st.session_state:
 
 @st.cache_resource
 def load_embeddings():
-    # Modelo ligero y rápido para Streamlit Cloud
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 embeddings = load_embeddings()
-
-# Verificación de API Key
-if "GROQ_API_KEY" not in st.secrets:
-    st.error("⚠️ Falta GROQ_API_KEY en los Secrets de Streamlit.")
-    st.stop()
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# --- 2. FUNCIÓN DE BÚSQUEDA EN INTERNET ---
+# --- 2. FUNCIÓN DE BÚSQUEDA WEB ---
 def search_internet(query):
     try:
         with DDGS() as ddgs:
             results = [r['body'] for r in ddgs.text(query, max_results=3)]
             return "\n\n".join(results)
     except Exception as e:
-        logging.error(f"Error búsqueda web: {e}")
-        return "No se pudo obtener información de la web en este momento."
+        return f"Error web: {e}"
 
-# --- 3. EXTRACCIÓN DE TEXTO ---
+# --- 3. EXTRACCIÓN DE TEXTO (AHORA CON EXCEL) ---
 def extract_text(file):
-    content = ""
+    name = file.name.lower()
     try:
         file.seek(0)
-        if file.name.lower().endswith(".pdf"):
+        # LÓGICA PARA PDF
+        if name.endswith(".pdf"):
             reader = PdfReader(io.BytesIO(file.read()))
-            for p in reader.pages[:50]:
-                content += p.extract_text() or ""
-        elif file.name.lower().endswith(".docx"):
+            return "".join([p.extract_text() or "" for p in reader.pages[:50]])
+        
+        # LÓGICA PARA WORD
+        elif name.endswith(".docx"):
             doc = Document(io.BytesIO(file.read()))
-            for p in doc.paragraphs:
-                content += p.text + "\n"
-        return content
+            return "\n".join([p.text for p in doc.paragraphs])
+        
+        # LÓGICA PARA EXCEL (NUEVO)
+        elif name.endswith(".xlsx") or name.endswith(".xls"):
+            df = pd.read_excel(io.BytesIO(file.read()))
+            # Convertimos la tabla a un formato de texto que la IA entienda
+            return f"Datos de la tabla {name}:\n" + df.to_string(index=False)
+        
+        # LÓGICA PARA CSV (NUEVO)
+        elif name.endswith(".csv"):
+            df = pd.read_csv(io.BytesIO(file.read()))
+            return f"Datos del CSV {name}:\n" + df.to_string(index=False)
+            
+        return ""
     except Exception as e:
-        logging.error(f"Error en {file.name}: {e}")
+        logging.error(f"Error en {name}: {e}")
         return ""
 
 # --- 4. INTERFAZ LATERAL ---
 with st.sidebar:
-    st.header("📂 Documentos Locales")
-    uploaded_files = st.file_uploader("Sube archivos (PDF/DOCX)", accept_multiple_files=True, type=['pdf','docx'])
+    st.header("📂 Base de Conocimiento")
+    st.info("Formatos: PDF, DOCX, XLSX, CSV")
+    uploaded_files = st.file_uploader("Sube tus archivos", accept_multiple_files=True, type=['pdf','docx','xlsx', 'csv'])
     
-    if st.button("🔄 Indexar Documentos"):
+    if st.button("🔄 Indexar Todo"):
         path = f"./vectorstores/{st.session_state.user_id}"
-        if os.path.exists(path):
-            shutil.rmtree(path)
+        if os.path.exists(path): shutil.rmtree(path)
         
         if uploaded_files:
             texts, metas = [], []
-            with st.spinner("Procesando archivos..."):
+            with st.spinner("Leyendo documentos y tablas..."):
                 for f in uploaded_files:
                     t = extract_text(f)
                     if t:
-                        chunks = [t[i:i+1000] for i in range(0, len(t), 900)]
+                        chunks = [t[i:i+1500] for i in range(0, len(t), 1300)]
                         texts.extend(chunks)
                         metas.extend([{"source": f.name}] * len(chunks))
                 
                 if texts:
                     Chroma.from_texts(texts, embeddings, persist_directory=path, metadatas=metas)
-                    st.success("¡Base de conocimientos lista!")
-                else:
-                    st.warning("No se pudo extraer texto de los archivos.")
+                    st.success(f"¡{len(uploaded_files)} archivos listos!")
 
 # --- 5. CHAT HÍBRIDO ---
-st.title("🤖 EVANS.DA: Inteligencia Híbrida 2026")
+st.title("🤖 EVANS.DA: Inteligencia Total 2026")
 
-# Mostrar historial
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+    with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-prompt = st.chat_input("Pregunta lo que quieras...")
+prompt = st.chat_input("Analiza mi Excel o pregunta sobre la actualidad...")
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    with st.chat_message("user"): st.markdown(prompt)
 
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_response = ""
         
-        # A. Búsqueda en PDF (Contexto Local)
+        # A. Búsqueda Local (PDF/Word/Excel)
         path = f"./vectorstores/{st.session_state.user_id}"
-        pdf_context = ""
+        local_context = ""
         if os.path.exists(path) and os.listdir(path):
             vs = Chroma(persist_directory=path, embedding_function=embeddings)
-            docs = vs.similarity_search(prompt, k=3)
-            pdf_context = "\n".join([f"Fuente: {d.metadata['source']}\nContenido: {d.page_content}" for d in docs])
+            docs = vs.similarity_search(prompt, k=4)
+            local_context = "\n---\n".join([f"Archivo: {d.metadata['source']}\n{d.page_content}" for d in docs])
 
-        # B. Búsqueda en Internet (Contexto Tiempo Real)
-        with st.status("🌐 Consultando fuentes de marzo 2026..."):
+        # B. Búsqueda Web
+        with st.status("🌐 Consultando internet 2026..."):
             web_context = search_internet(prompt)
 
-        # C. Generación Final con Lógica Híbrida
+        # C. Generación
         fecha_hoy = datetime.now().strftime("%d de %B de %Y")
-        
         sys_msg = (
-            f"Hoy es {fecha_hoy}. Eres EVANS.DA, una IA de investigación híbrida avanzada. "
-            "TU LÓGICA DE TRABAJO: "
-            "1. PRIORIDAD PDF: Si el usuario pregunta por sus archivos o temas específicos cargados, usa <DOCUMENTOS_PDF_LOCALES>. "
-            "2. PRIORIDAD WEB: Si pregunta por actualidad, noticias o datos generales de 2026, usa <INFORMACION_WEB_2026>. "
-            "3. MEZCLA: Si la pregunta requiere ambos, integra las fuentes. "
-            "4. IDIOMA: Responde en español académico. Ignora definiciones irrelevantes de internet."
+            f"Hoy es {fecha_hoy}. Eres EVANS.DA. "
+            "Cuentas con dos fuentes: <DOCS_LOCALES> (que pueden ser textos o tablas de Excel) "
+            "y <WEB_2026>. Tu misión es dar respuestas exactas. "
+            "Si el usuario te pide analizar datos numéricos del Excel, hazlo con precisión matemática."
         )
         
-        user_payload = f"""
-        SISTEMA DE CONTEXTO HÍBRIDO:
-        
-        <DOCUMENTOS_PDF_LOCALES>
-        {pdf_context if pdf_context.strip() else "No hay documentos cargados."}
-        </DOCUMENTOS_PDF_LOCALES>
-        
-        <INFORMACION_WEB_2026>
-        {web_context}
-        </INFORMACION_WEB_2026>
-        
-        PREGUNTA: {prompt}
-        """
+        payload = f"LOCAL:\n{local_context}\n\nWEB:\n{web_context}\n\nPREGUNTA: {prompt}"
 
         try:
             stream = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": sys_msg},
-                    {"role": "user", "content": user_payload}
-                ],
-                temperature=0.3,
+                messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": payload}],
+                temperature=0.2,
                 stream=True
             )
-
             for chunk in stream:
                 content = getattr(chunk.choices[0].delta, "content", "")
                 if content:
                     full_response += content
                     placeholder.markdown(full_response + "▌")
-            
             placeholder.markdown(full_response)
             st.session_state.messages.append({"role": "assistant", "content": full_response})
-            
         except Exception as e:
-            st.error(f"Error en el motor de IA: {e}")
+            st.error(f"Error: {e}")
